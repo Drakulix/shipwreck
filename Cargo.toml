@@ -1,0 +1,19 @@
+[package]
+authors = ["drakulix"]
+edition = "2018"
+name = "sunkenship"
+version = "0.1.0"
+[dependencies]
+futures = "0.1"
+glob = "0.3"
+hyper = "0.12"
+hyperlocal = "0.6.0"
+jmespath = { version = "0.2", features = ["sync"] }
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0.39"
+toml = "0.4"
+clap = "2"
+simplelog = "^0.5.3"
+log = "^0.4.6"
+uri = "^0.3.0"
+tokio-io = "0.1"
