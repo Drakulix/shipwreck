@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    convert::{TryFrom, TryInto},
     io::{self, Read},
     fs::{self, File},
+    fmt, error,
     str::FromStr,
     path::PathBuf,
     net::SocketAddr,
@@ -11,13 +13,14 @@ use uri::Uri;
 use glob::Pattern;
 use jmespath::Expression;
 use futures::{Future, Stream};
+use failure::{Fail, Error};
 use hyper::{
     client::{
         connect::{Connect, Connected},
         HttpConnector,
     },
     Client, Body, Request, Response, Method, StatusCode,
-    service::{Service, NewService}, error::Error,
+    service::{Service, NewService},
 };
 use hyperlocal::{UnixConnector};
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -35,10 +38,31 @@ struct ProxyService {
     config: Config,
 }
 
+#[derive(Debug)]
+enum ServiceError {
+    MethodConversionError(MethodConversionError),
+}
+
+impl fmt::Display for ServiceError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Unable to convert method type.\nCause: {}", match self {
+            ServiceError::MethodConversionError(x) => x,
+        })
+    }
+}
+
+impl error::Error for ServiceError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        Some(match self {
+            &ServiceError::MethodConversionError(ref x) => &x,
+        })
+    }
+}
+
 impl NewService for ProxyService {
     type ReqBody = Body;
     type ResBody = Body;
-    type Error = Error;
+    type Error = ServiceError;
     type Service = ProxyService;
     type Future = Box<Future<Item = ProxyService, Error = Error> + Send>;
     type InitError = Error;
@@ -60,12 +84,12 @@ impl Clone for ProxyService {
     }
 }
 
-type Return = Box<Future<Item = Response<Body>, Error = hyper::error::Error> + Send>;
+type Return = Box<Future<Item = Response<Body>, Error = ServiceError> + Send>;
 
 impl Service for ProxyService {
     type ReqBody = Body;
     type ResBody = Body;
-    type Error = Error;
+    type Error = ServiceError;
     type Future = Return;
     fn call(&mut self, mut req: Request<Self::ReqBody>) -> Self::Future {
         fn proxy<
@@ -89,16 +113,18 @@ impl Service for ProxyService {
                                     let (parts, body) = resp.into_parts();
                                     return Box::new(body.fold(Vec::new(), |mut bytes, chunk| {
                                         bytes.extend_from_slice(&chunk);
-                                        futures::future::ok::<_, hyper::Error>(bytes)
+                                        futures::future::ok::<_, ServiceError>(bytes)
                                     }).map(move |json| {
                                         let data: jmespath::Variable = serde_json::from_slice(&json).unwrap();
-                                        let result = path.search(data).expect("Could not run jmespath");
+                                        let result = path.search(data)
+                                            .map_err(|err| log::error!("Execution Error: {}", err))
+                                            .expect("Could not run jmespath");
                                         let body = Body::from(serde_json::to_vec(&*result).unwrap());
                                         Response::from_parts(parts, body)
-                                    })) as Box<Future<Item = Response<Body>, Error = hyper::error::Error> + Send>
+                                    })) as Box<Future<Item = Response<Body>, Error = ServiceError> + Send>
                                 }
                             };
-                            Box::new(futures::future::ok(resp)) as Box<Future<Item = Response<Body>, Error = hyper::error::Error> + Send>
+                            Box::new(futures::future::ok(resp)) as Box<Future<Item = Response<Body>, Error = ServiceError> + Send>
                         })))
                     },
                     _ => Err(req),
@@ -111,7 +137,7 @@ impl Service for ProxyService {
                     Err(old_req) => { req = old_req; },
                 }
             }
-            if let Some(filters) = config.get(&req.method().into()) {
+            if let Some(filters) = config.get(&req.method().try_into()?) {
                 match filter(&client, req, filters) {
                     Ok(result) => return result,
                     Err(old_req) => { req = old_req; },
@@ -123,7 +149,7 @@ impl Service for ProxyService {
         match &self.from {
             &Socket::Unix(ref path) => {
                 let client = Client::builder()
-                    .keep_alive(false) // without this the connection will remain open
+                    .keep_alive(false)
                     .build::<_, Body>(UnixConnector::new());
                 *req.uri_mut() = hyperlocal::Uri::new(path,
                     req.uri()
@@ -200,28 +226,40 @@ enum Socket {
     EncryptedNetwork(String),
 }
 
-impl From<uri::Uri> for Socket {
-    fn from(uri: uri::Uri) -> Socket {
+#[derive(Debug, Fail)]
+enum SocketConversionError {
+    #[fail(display = "unix:/file: uri has no path")]
+    UriHasNoPath,
+
+    #[fail(display = "Unknown uri type ({}), use one of 'unix', 'file', 'tcp', 'http', 'tls', 'https'", uriType)]
+    UnknownUriType {
+        uriType: String,
+    }
+}
+
+impl TryFrom<uri::Uri> for Socket {
+    type Error = SocketConversionError;
+
+    fn try_from(uri: uri::Uri) -> Result<Socket, SocketConversionError> {
         match &*uri.scheme {
-            // TODO better errors, when TryFrom is stable
-            "unix" | "file" => Socket::Unix(PathBuf::from(uri.path.expect("unix:/file: uri has no path"))),
-            "tcp" | "http" => Socket::Network(
+            "unix" | "file" => Ok(Socket::Unix(PathBuf::from(uri.path.ok_or(SocketConversionError::UriHasNoPath)?))),
+            "tcp" | "http" => Ok(Socket::Network(
                 format!("{}{}",
                     uri.host.unwrap(),
                     uri.port
                         .map(|port| if port == 80 { String::new() } else { format!(":{}", port) })
                         .unwrap_or_default()
                 )
-            ),
-            "tls" | "https" => Socket::EncryptedNetwork(
+            )),
+            "tls" | "https" => Ok(Socket::EncryptedNetwork(
                 format!("{}{}",
                     uri.host.unwrap(),
                     uri.port
                         .map(|port| if port == 443 { String::new() } else { format!(":{}", port) })
                         .unwrap_or_default()
                 )
-            ),
-            _ => panic!("Unknown uri type, use one of 'unix', 'file', 'tcp', 'http', 'tls', 'https'"),
+            )),
+            x => Err(SocketConversionError::UnknownUriType { uriType: x }),
         }
     }
 }
@@ -242,24 +280,62 @@ pub enum MethodType {
     TRACE,
 }
 
-impl From<&Method> for MethodType {
-    fn from(method: &Method) -> Self {
+#[derive(Debug, Fail)]
+enum MethodConversionError {
+    #[fail(display = "Unknown Method: {}", method)]
+    UnknownMethod {
+        method: String,
+    }
+}
+
+impl TryFrom<&Method> for MethodType {
+    type Error = MethodConversionError;
+    fn try_from(method: &Method) -> Result<Self, Self::Error> {
         match method.as_str() {
-            "GET" => MethodType::GET,
-            "POST" => MethodType::POST,
-            "PUT" => MethodType::PUT,
-            "DELETE" => MethodType::DELETE,
-            "HEAD" => MethodType::HEAD,
-            "OPTIONS" => MethodType::OPTIONS,
-            "CONNECT" => MethodType::CONNECT,
-            "PATCH" => MethodType::PATCH,
-            "TRACE" => MethodType::TRACE,
-            _ => panic!("Unknown Method"),
+            "GET" => Ok(MethodType::GET),
+            "POST" => Ok(MethodType::POST),
+            "PUT" => Ok(MethodType::PUT),
+            "DELETE" => Ok(MethodType::DELETE),
+            "HEAD" => Ok(MethodType::HEAD),
+            "OPTIONS" => Ok(MethodType::OPTIONS),
+            "CONNECT" => Ok(MethodType::CONNECT),
+            "PATCH" => Ok(MethodType::PATCH),
+            "TRACE" => Ok(MethodType::TRACE),
+            _ => Err(MethodConversionError::UnknownMethod { method: method.as_str() }),
         }
     }
 }
 
-fn main() {
+#[derive(Debug, Fail)]
+enum MainError {
+    #[fail(display = "Error initializing logging system")]
+    LogSystem(#[fail(cause)] log::SetLoggerError),
+
+    #[fail(display = "Error opening filter config file")]
+    OpenConfigError(#[fail(cause)] io::Error),
+
+    #[fail(display = "Error reading filter config file")]
+    ReadConfigError(#[fail(cause)] io::Error),
+
+    #[fail(display = "Error parsing filter config file")]
+    ParseConfigError(#[fail(cause)] toml::de::Error),
+
+    #[fail(display = "Error parsing glob pattern: '{:?} = {:?}'", pattern, expr)]
+    GlobParseError {
+        pattern: String,
+        expr: String,
+        #[fail(cause)] cause: glob::PatternError
+    },
+
+    #[fail(display = "Error parsing jmespath: '{:?} = {:?}'", pattern, expr)]
+    JmespathParseError {
+        pattern: String,
+        expr: String,
+        #[fail(cause)] cause: jmespath::JmespathError
+    },
+}
+
+fn main() -> Result<(), Box<std::error::Error>> {
     let matches = App::new("🔱 Shipwreck")
         .version("1.0")
         .author("Victor Brekenfeld <shipwreck@drakulix.de>")
@@ -300,8 +376,8 @@ fn main() {
 
     // read parameters
     let config_path = matches.value_of("filter").unwrap_or("filter.toml");
-    let from = Uri::new(matches.value_of("from").unwrap_or("unix:///var/run/docker.sock")).unwrap().into();
-    let to = Uri::new(matches.value_of("to").unwrap()).unwrap().into();
+    let from = Uri::new(matches.value_of("from").unwrap_or("unix:///var/run/docker.sock")).try_into()?;
+    let to = Uri::new(matches.value_of("to").unwrap()).try_into()?;
     let overwrite = matches.is_present("force");
     let verbosity = match (matches.is_present("quiet"), matches.occurrences_of("verbose")) {
         (true, _) => simplelog::LevelFilter::Off,
@@ -313,36 +389,36 @@ fn main() {
     };
 
     // initialize logging
-    if simplelog::TermLogger::init(verbosity, Default::default()).is_err() {
-        simplelog::SimpleLogger::init(verbosity, Default::default()).expect("Error initializing logging system");
+    if let Err(err) = simplelog::TermLogger::init(verbosity, Default::default()) {
+        simplelog::SimpleLogger::init(verbosity, Default::default()).map_err(|err| MainError::LogSystem(err))?;
+        log::debug!("Not running on a tty: {:?}", err);
     }
 
     // config
     let mut config_bytes = Vec::new();
     File::open(config_path)
-        .expect("Unable to open filter configuration file")
+        .map_err(|err| MainError::OpenConfigError(err))?
         .read_to_end(&mut config_bytes)
-        .expect("Unable to read filter configuration file");
+        .map_err(|err| MainError::ReadConfigError(err))?;
     let config: Config = {
         let raw_conf: HashMap<MethodType, BTreeMap<String, String>> =
-            toml::from_slice(&config_bytes).expect("Could not parse filter configuration file");
+            toml::from_slice(&config_bytes).map_err(|err| MainError::ParseConfigError(err));
         raw_conf.into_iter()
         .map(|(key, value)| {
             (key, value.into_iter().map(|(pattern, expr)| {
                 (
-                    Pattern::new(&pattern).expect("Unable to parse glob pattern"),
+                    Pattern::new(&pattern).map_err(|cause| MainError::GlobParseError { pattern, expr, cause })?,
                     if expr.to_lowercase() == "block" {
                         None
                     } else {
-                        Some(jmespath::compile(&expr).expect("Unable to parse jmespath"))
+                        Some(jmespath::compile(&expr).map_err(|cause| MainError::JmespathParseError { pattern, expr, cause })?)
                     }
                 )
             }).collect())
         }).collect()
     };
 
-    log::info!("😱 Leave now! The crew is drowning");
-    if let Err(err) = run(from, to, config, overwrite) {
-        log::error!("🛳️ Error sinking server: {}", err)
-    }
+    log::info!("😱 Shipwreck initializing! The crew is drowning");
+    run(from, to, config, overwrite)?;
+    Ok(())
 }

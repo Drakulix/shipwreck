@@ -4,16 +4,23 @@ edition = "2018"
 name = "sunkenship"
 version = "0.1.0"
 [dependencies]
+clap = "2"
+failure = "0.1.5"
 futures = "0.1"
 glob = "0.3"
 hyper = "0.12"
 hyperlocal = "0.6.0"
-jmespath = { version = "0.2", features = ["sync"] }
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = "^1.0.39"
-toml = "0.4"
-clap = "2"
-simplelog = "^0.5.3"
 log = "^0.4.6"
-uri = "^0.3.0"
+serde_json = "^1.0.39"
+simplelog = "^0.5.3"
 tokio-io = "0.1"
+toml = "0.4"
+uri = "^0.3.0"
+
+[dependencies.jmespath]
+features = ["sync"]
+version = "0.2"
+
+[dependencies.serde]
+features = ["derive"]
+version = "^1.0"
