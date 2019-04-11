@@ -3,7 +3,7 @@ use std::{
     convert::{TryFrom, TryInto},
     io::{self, Read},
     fs::{self, File},
-    fmt, error,
+    fmt, env, error,
     str::FromStr,
     path::PathBuf,
     net::SocketAddr,
@@ -376,7 +376,10 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
     // read parameters
     let config_path = matches.value_of("filter").unwrap_or("filter.toml");
-    let from = Uri::new(matches.value_of("from").unwrap_or("unix:///var/run/docker.sock")).try_into()?;
+    let from = Uri::new(matches.value_of("from")
+        .unwrap_or_else(env::var("DOCKER_HOST")
+        .unwrap_or("unix:///var/run/docker.sock")))
+        .try_into()?;
     let to = Uri::new(matches.value_of("to").unwrap()).try_into()?;
     let overwrite = matches.is_present("force");
     let verbosity = match (matches.is_present("quiet"), matches.occurrences_of("verbose")) {
