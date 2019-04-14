@@ -156,17 +156,17 @@ impl Service for ProxyService {
                 }
             }
 
-            if let Some(filters) = config.get(&MethodType::ANY) {
-                match filter(&client, req, filters) {
-                    Ok(result) => return result,
-                    Err(old_req) => { req = old_req; },
-                }
-            }
             let method = match req.method().try_into() {
                 Ok(x) => x,
                 Err(x) => return Box::new(futures::future::err(ServiceError::MethodConversionError(x))),
             };
             if let Some(filters) = config.get(&method) {
+                match filter(&client, req, filters) {
+                    Ok(result) => return result,
+                    Err(old_req) => { req = old_req; },
+                }
+            }
+            if let Some(filters) = config.get(&MethodType::ANY) {
                 match filter(&client, req, filters) {
                     Ok(result) => return result,
                     Err(old_req) => { req = old_req; },
