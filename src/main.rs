@@ -8,6 +8,7 @@ use std::{
     str::FromStr,
     path::{Path, PathBuf},
     net::SocketAddr,
+    os::unix::fs::PermissionsExt,
 };
 use clap::{App, Arg};
 use uri::Uri;
@@ -209,7 +210,7 @@ impl Service for ProxyService {
     }
 }
 
-fn run(from: Socket, to: Socket, config: Config, force: bool) -> io::Result<()> {
+fn run(from: Socket, to: Socket, config: Config, perm: u32, force: bool) -> io::Result<()> {
     match to {
         Socket::Unix(path) => {
             if path.exists() {
@@ -224,6 +225,11 @@ fn run(from: Socket, to: Socket, config: Config, force: bool) -> io::Result<()> 
             }
 
             let svr = hyperlocal::server::Server::bind(&path, ProxyService { from, config })?;
+
+            let mut permissions = fs::metadata(&path)?.permissions();
+            permissions.set_mode(perm);
+            fs::set_permissions(&path, permissions)?;
+
             log::info!("🐙 Successfully sunken. Serving Cthulhu on unix://{:?}", path);
             svr.run()?;
 
@@ -393,6 +399,12 @@ fn main() -> Result<(), Box<Fail>> {
             .short("F")
             .long("force")
             .help("Overwrite unix socket file, if it exists and required"))
+        .arg(Arg::with_name("perm")
+            .short("m")
+            .long("mode")
+            .value_name("MODE")
+            .help("Mode/Permissions of the created socket, if given a \"unix:\"/\"file:\" URI (defaults to 660)")
+            .takes_value(true))
         .arg(Arg::with_name("quiet")
             .short("q")
             .long("quiet")
@@ -434,6 +446,7 @@ fn main() -> Result<(), Box<Fail>> {
         .try_into()
         .map_err(|err| Box::new(err) as Box<Fail>)?;
     let overwrite = matches.is_present("force");
+    let perm = matches.value_of("perm").map(|x| u32::from_str_radix(x, 8).expect("MODE needs to be numeric")).unwrap_or(0o660);
     let verbosity = match (matches.is_present("quiet"), matches.occurrences_of("verbose")) {
         (true, _) => simplelog::LevelFilter::Off,
         (_, 0)=> simplelog::LevelFilter::Error,
@@ -487,6 +500,6 @@ fn main() -> Result<(), Box<Fail>> {
     };
 
     log::info!("😱 Shipwreck initializing! The crew is drowning");
-    run(from, to, config, overwrite).map_err(|err| Box::new(MainError::ServerError(err)) as Box<dyn Fail>)?;
+    run(from, to, config, perm, overwrite).map_err(|err| Box::new(MainError::ServerError(err)) as Box<dyn Fail>)?;
     Ok(())
 }

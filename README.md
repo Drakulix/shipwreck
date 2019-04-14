@@ -34,6 +34,7 @@ FLAGS:
 OPTIONS:
     -c, --filter_config <FILE>    Sets a custom filter config file (defaults to block all POST requests)
     -f, --from <URI>              Docker Host (defaults to unix:///var/run/docker.sock)
+    -m, --mode <MODE>             Mode/Permissions of the created socket, if given a "unix:"/"file:" URI (defaults to 660)
     -t, --to <URI>                Sets the socket to create
 ```
 
