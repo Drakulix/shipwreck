@@ -230,7 +230,7 @@ fn run(from: Socket, to: Socket, config: Config, perm: u32, force: bool) -> io::
             permissions.set_mode(perm);
             fs::set_permissions(&path, permissions)?;
 
-            log::info!("🐙 Successfully sunken. Serving Cthulhu on unix://{:?}", path);
+            log::info!("🐙 Successfully sunken. Serving Cthulhu on unix:///{:?}", path);
             svr.run()?;
 
             if let Err(err) = fs::remove_file(path) {
@@ -419,7 +419,7 @@ fn main() -> Result<(), Box<Fail>> {
             .long("from")
             .value_name("URI")
             .takes_value(true)
-            .help("Docker Host (defaults to unix:///var/run/docker.sock)"))
+            .help("Docker Host (defaults to unix://localhost/var/run/docker.sock)"))
         .arg(Arg::with_name("to")
             .short("t")
             .long("to")
@@ -435,7 +435,7 @@ fn main() -> Result<(), Box<Fail>> {
         .map(Cow::from)
         .unwrap_or_else(|| env::var("DOCKER_HOST")
             .map(Cow::from)
-            .unwrap_or(Cow::from("unix:///var/run/docker.sock"))
+            .unwrap_or(Cow::from("unix://localhost/var/run/docker.sock"))
         );
     let from = Uri::new(from_val.as_ref())
         .map_err(|err| Box::new(MainError::UriFormatError(err)) as Box<Fail>)?
