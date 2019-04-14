@@ -1,0 +1,21 @@
+language: minimal
+
+services:
+  - docker
+
+before_install:
+  - docker pull clux/muslrust
+
+script:
+  - docker run -v $PWD:/volume --rm -t clux/muslrust cargo build --verbose
+
+after_success:
+  - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+  - make build
+  - make tag-latest
+  - make tag-semver
+  - docker logout
+
+env:
+  global:
+    secure: PSnvrbex2IlT6RTN40l1ARu1KxmMOWcHm7Czh8sXShCOoHtn3qpxH0X1gSRSRTOZfXqoc1zZPKdhkiJn0hq9jyqGE163te4gY4BNJTTFiLl8hQDwar9gllkw2lyS3M3RApsWAFJjCrOJj/dvxEHWPgfBY56WSS8Yrsca0MU/jaQ9w7pqSqlZczGgKwnbo5wC1ZkmygbMu7RL74oqTUAg1syAsajc+fq2SGqblczs3tiNN4awT+j/sPW7Gs/zRBPnUtUdAlx4fX9yoIlQBidH1rHhuEja0e6f94NUSbcQQNuXjlyPLDJsAGg8b2/fzP5GX3aJqGBGYy6U+toDdVU1XMnQF+Qfj9Hh8khZdHBN/LMHpsSR4/f6ABS40mxfGiRMmlNe4kvQXCthRI5ykrsRrr83Y2LZ4kO7dZDPVasePp4D3voxXsuAivuVK2WW4xsie3RoansmZTUFFoFad/L45TZAKVXZSssgeRZlxHVMwn8fstaQIJjRwhXcospZRpBTWZwOhnBTjFYUhg3u//DxaogIXcKK1xb3bmgbTjpsYp9Md8h5VO9N82YoPcxHjXWegFJgn3lv+jDnZcU936SvJs0ImeDKBlSHsEAdTilFrsYGx/MOgEFDilP4Q5u9RNcHkuqphWY0mYf9K2RhG27AEVRQTfah+QWzsTWxc5pTXSc=
