@@ -79,7 +79,7 @@ Using `@` the json input can be passed through (this is standard jmespath syntax
 
 Much more complex filtering is possible. E.g. you may use ``[?Names != `["/netdata"]`]`` on `/containers/json`
 to hide a netdata container from itself (assuming your netdata-container is actually named *netdata*). Instead of returning a `403` you may also craft empty responses
-for tools, that no not handle http errors very well.
+for tools, that do not handle http errors very well.
 
 ## Usage with docker
 
