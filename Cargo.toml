@@ -3,6 +3,7 @@ authors = ["drakulix"]
 edition = "2018"
 name = "sunkenship"
 version = "0.1.0"
+
 [dependencies]
 clap = "2"
 failure = "0.1.5"
