@@ -11,14 +11,6 @@ build:
 		cargo build --release
 	docker build -t $(REPO)/$(NAME):$(VERSION) .
 
-stop:
-	(docker rm -f $(NAME) 2> /dev/null) || true
-
-run: stop
-	docker run -p 8000:80 -d --name=$(NAME) -t $(REPO)/$(NAME):$(VERSION)
-	curl -sSL 0.0.0.0:8000 | grep "Posts"
-	@echo "http://0.0.0.0:8000"
-
 tag-latest:
 	docker tag $(REPO)/$(NAME):$(VERSION) $(REPO)/$(NAME):latest
 	docker push $(REPO)/$(NAME):latest

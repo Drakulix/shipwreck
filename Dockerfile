@@ -1,3 +1,3 @@
 FROM scratch
-COPY target/release/shipwreck /shipwreck
+COPY target/x86_64-unknown-linux-musl/release/shipwreck /shipwreck
 ENTRYPOINT [ "/shipwreck" ]

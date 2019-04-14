@@ -7,11 +7,10 @@ before_install:
   - docker pull clux/muslrust
 
 script:
-  - docker run -v $PWD:/volume --rm -t clux/muslrust cargo build --verbose
+  - make build
 
 after_success:
   - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-  - make build
   - make tag-latest
   - make tag-semver
   - docker logout
