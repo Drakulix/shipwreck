@@ -224,15 +224,41 @@ fn run(from: Socket, to: Socket, config: Config, perm: u32, force: bool) -> io::
                     ));
                 }
             }
-
-            let svr = hyperlocal::server::Server::bind(&path, ProxyService { from, config })?;
+            let mut protocol = hyper::server::conn::Http::new();
+            protocol.http1_only(true);
+            protocol.keep_alive(false);
+            let serve = hyperlocal::server::Http::from_hyper(protocol)
+                .serve_path(&path, ProxyService { from, config })?;
 
             let mut permissions = fs::metadata(&path)?.permissions();
             permissions.set_mode(perm);
             fs::set_permissions(&path, permissions)?;
 
             log::info!("🐙 Successfully sunken. Serving Cthulhu on unix:///{:?}", path);
-            svr.run()?;
+
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on_all(serve.for_each(|connecting| {
+                connecting
+                    .map_err(|e| {
+                        let err = io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("failed to serve connection: {}", e),
+                        );
+                        log::error!("Conn: {}", err);
+                        err
+                    })
+                    .and_then(|connection| {
+                        connection.map_err(|e| {
+                            let err = io::Error::new(
+                                io::ErrorKind::Other,
+                                format!("failed to serve connection: {}", e),
+                            );
+                            log::error!("Conn: {}", err);
+                            err
+                        })
+                    })
+                    .or_else(|_| futures::future::ok(()))
+            }))?;
 
             if let Err(err) = fs::remove_file(path) {
                 if err.kind() != io::ErrorKind::NotFound {
