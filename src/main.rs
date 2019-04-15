@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{self, Read},
     fs::{self, File},
@@ -27,8 +27,9 @@ use hyper::{
 use hyperlocal::{UnixConnector};
 use tokio_io::{AsyncRead, AsyncWrite};
 use serde::Deserialize;
+use linked_hash_map::LinkedHashMap;
 
-type Filters = BTreeMap<Pattern, Option<Expression<'static>>>;
+type Filters = LinkedHashMap<Pattern, Option<Expression<'static>>>;
 type Config = HashMap<MethodType, Filters>;
 
 fn clone_expr(expr: &Expression) -> Expression<'static> {
@@ -476,7 +477,7 @@ fn main() -> Result<(), Box<Fail>> {
     let config: Config = {
         let raw_val: toml::Value =
             toml::from_slice(&config_bytes).map_err(|err| Box::new(MainError::ParseConfigError(err)) as Box<dyn Fail>)?;
-        let raw_conf: HashMap<MethodType, BTreeMap<String, String>> =
+        let raw_conf: HashMap<MethodType, LinkedHashMap<String, String>> =
             raw_val.try_into().map_err(|err| Box::new(MainError::ParseConfigError(err)) as Box<dyn Fail>)?;
         raw_conf.into_iter()
             .map(|(key, value)| {
