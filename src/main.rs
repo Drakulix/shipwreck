@@ -413,7 +413,7 @@ enum MainError {
 
 fn main() -> Result<(), Box<Fail>> {
     let matches = App::new("🔱 Shipwreck")
-        .version("0.1.3")
+        .version("0.1.4")
         .author("Victor Brekenfeld <shipwreck@drakulix.de>")
         .about("Proxy docker.sock for safe(r) container exposure")
         .arg(Arg::with_name("filter")
