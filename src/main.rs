@@ -141,10 +141,27 @@ impl Service for ProxyService {
                                                     futures::future::ok::<_, ServiceError>(bytes)
                                                 }
                                         ).map(move |json| {
-                                            let data: jmespath::Variable = serde_json::from_slice(&json).unwrap();
-                                            let result = path.search(data)
-                                                .map_err(|err| log::error!("Execution Error: {}", err))
-                                                .expect("Could not run jmespath");
+                                            let data: jmespath::Variable = match serde_json::from_slice(&json) {
+                                                Ok(data) => data,
+                                                Err(err) => {
+                                                    log::warn!("Could not parse data ({:#?}) as json: {}", &json, err);
+                                                    if path.as_str() == "@" {
+                                                        log::debug!("\"@\" was specified, passing through unknown payload");
+                                                        return Response::from_parts(parts, Body::from(json));
+                                                    } else {
+                                                        log::error!("Could not apply path {:?} on unknown payload. use \"@\" or \"block\"", path.as_str());
+                                                        return Response::builder().status(StatusCode::FORBIDDEN).body(Body::empty()).unwrap();
+                                                    }
+                                                }
+                                            };
+                                            let result = match path.search(data) {
+                                                Ok(x) => x,
+                                                Err(err) => {
+                                                    log::error!("Execution Error: {}", err);
+                                                    log::warn!("Blocking unfiltered call");
+                                                    return Response::builder().status(StatusCode::FORBIDDEN).body(Body::empty()).unwrap();
+                                                }
+                                            };
                                             let body = Body::from(serde_json::to_vec(&*result).unwrap());
                                             Response::from_parts(parts, body)
                                         })) as Box<Future<Item = Response<Body>, Error = ServiceError> + Send>
@@ -157,6 +174,8 @@ impl Service for ProxyService {
                     _ => Err(req),
                 }
             }
+
+            log::info!("Req: {:#?}", req);
 
             let method = match req.method().try_into() {
                 Ok(x) => x,
