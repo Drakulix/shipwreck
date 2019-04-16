@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "shipwreck"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",

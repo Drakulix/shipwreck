@@ -2,7 +2,7 @@
 authors = ["drakulix"]
 edition = "2018"
 name = "shipwreck"
-version = "0.1.4"
+version = "0.1.5"
 
 [dependencies]
 clap = "2"
