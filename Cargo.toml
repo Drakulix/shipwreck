@@ -20,7 +20,7 @@ uri = "^0.3.0"
 
 [dependencies.linked-hash-map]
 features = ["serde_impl"]
-version = "0.5.2"
+version = "0.5.3"
 
 [dependencies.toml]
 features = ["preserve_order"]
